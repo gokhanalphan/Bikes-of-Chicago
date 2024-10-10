@@ -1,0 +1,221 @@
+---
+title: "Bike Habits of Chicago in Cyclistic's View"
+author: "Gokhan Alphan"
+date: "2024-09-17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### (A case study)
+
+## Business strategy and objectives.
+
+As "Cyclistic", we offer fast and affordable transport options to thousands of users with the bicycle sharing application. The part of our users who do not have an annual membership affects our forecast strategic growth. We will look for an answer to the question of how we can change the membership type of this user profile to our annual members with digital media. 
+
+For this analysis I used RStudio and the last 12 months of data from [here](https://divvy-tripdata.s3.amazonaws.com/index.html). Before the analysis I check the integrity and reliability of the data. The data has been made available by Motivate International Inc. under this license [here](https://divvybikes.com/data-license-agreement)
+
+***
+I set up my environment by loading the ‘tidyverse’, ‘scales’, ‘janitor’, and ‘tidyr’ packages. I then explored the table, sorting and filtering to see what steps I could take to make it ready for processing.
+
+```{r Loading Packages and csv files, message=FALSE, warning=FALSE}
+
+library(tidyverse)
+library(scales)
+library(janitor)
+library(tidyr)
+
+csv_files <- list.files("/Users/gokhanalphan/RStudioFile/Citybike", pattern = "*.csv", full.names = TRUE)
+
+combined_data <- csv_files %>% lapply(read.csv) %>% bind_rows()
+
+```
+
+## Data preparation. They need to be clean.
+
+After merging the data in one place, I cleaned and prepared the data using the functions to make column names unique, change spaces to NA, delete NA columns and keep only distinct. Then I created a new table called "cyclistic" to be easily accessible, formatted date values from char to date format with the lubridate package, added a new column to get the ride duration (in seconds), filtered outliers like negative durations, wrong date inputs, too short rides (below 30 seconds). Changed rows starting with lowercase to uppercase starter, finally selected only necessary columns in this table. The cleaned data was checked with sorting, filtering and random sampling (%5).
+
+Number of rows before the cleaning: 5699639 \
+Number of rows after the cleaning: 4163501 \
+Total number of empty, duplicated, outlier, wrong input rows: 1536138 
+
+Could such a large number of bike rides indicate that people find such services more cost-effective and convenient than buying a bike?
+
+```{r Cleaning and formating data, echo=TRUE, message=FALSE, warning=FALSE}
+
+cleaned_cyclistic <- combined_data %>% 
+  clean_names() %>% 
+  mutate_all(~str_trim(.)) %>% 
+  mutate_all(~na_if(.,"")) %>% 
+  drop_na() %>% 
+  distinct()
+
+cyclistic <- cleaned_cyclistic %>% mutate(start_time = ymd_hms(started_at), end_time = ymd_hms(ended_at)) %>% 
+  mutate(time_diff = as.duration(interval(start_time, end_time))) %>% filter(time_diff > 30) %>% 
+  mutate(member_casual = str_to_title(member_casual)) %>%
+  mutate(rideable_type = str_to_title(rideable_type)) %>%
+  select(ride_id, rideable_type, start_station_name, start_station_id, end_station_name, end_station_id, member_casual, start_time, end_time, time_diff)
+
+random_sampling <- cyclistic %>% slice_sample(prop = 0.05)
+
+```
+
+## Analyze phase. 
+
+### What are the differences? 
+#### How can we change them to annual membership?
+
+I have begun to find the total number of users and between their ratio. The table shows us that annual members are almost twice as many as actual users. We will focus on the differences between casual users and annual users, which are not insignificant in terms of numbers. In this way we will analyze our target audience and learn how to reach them.
+
+***
+I created a new table to count and percentage of each user types. Then I used ggplot2 to create a bar chart.
+
+```{r Analyzing first impressions, message=FALSE, warning=FALSE}
+
+memberships2 <- cyclistic %>% count(member_casual, name = "Total") %>% 
+  mutate(Percentage = round(Total / sum(Total) * 100, 2))
+
+print(memberships2)
+
+ggplot(cyclistic, aes(x = member_casual, fill = member_casual)) + geom_bar() +
+  scale_y_continuous(labels = label_number(scale_cut = cut_short_scale())) +
+  labs(title = "Total Users in a year", x = "Member Types", y = "Total Numbers", fill = "Type of user") + theme(axis.text.x = element_blank())
+
+```
+
+## Now the most used locations.
+
+The highest user interest is at "Streeter Dr & Grand Ave", which is %51.29 more than the second highest starting point.
+
+When we look at the most popular locations for casual users, every start point is next to a park. This location-specific data gives us digital marketing/advertising hotspots. On the other hand, member users also use these spots for leisure, sports, travel, etc. These facts could give us clues as to what aspects we could offer casual members to convince them to become annual members.
+
+***
+I listed a data frame to get the most used start station names, sorted them in descending order and took the top 5 rows. I used this list in a new table to filter those start stations. Then I used ggplot2 to create a bar chart showing the distribution of member types.
+
+```{r Where could they start?, message=FALSE, warning=FALSE}
+
+print(cyclistic %>% count(start_station_name, sort = TRUE, name = "count_") %>% slice_head(n = 5))
+
+```
+
+```{r}
+
+most_used_five <- cyclistic %>% 
+  filter(start_station_name == "Streeter Dr & Grand Ave" |
+           start_station_name == "DuSable Lake Shore Dr & Monroe St" |
+           start_station_name == "Michigan Ave & Oak St" |
+           start_station_name == "DuSable Lake Shore Dr & North Blvd" |
+           start_station_name == "Kingsbury St & Kinzie St")
+
+ggplot(most_used_five, aes(y = start_station_name, fill = member_casual)) + geom_bar() +
+  labs(title = "Most Used Start Points in a year", x = "How many times used", y = "Station Names", fill = "Type of user") +
+  theme_gray()
+
+```
+
+## Most used riding routes.
+
+After looking at the starting points, I wanted to get the most used routes. Because routes could also give us information about most riding habits. The graph shows that 4 out of 7 routes are used by casual members, so far almost every ride graph (except the first one) shows that casual users focused on a few places and used bikes more than members. And obviously showed their purpose of riding; for the park trips. Loyal members, who used the bikes almost equally between Calumet Ave & 33rd St - State St & 33rd St (as well as University Ave & 57th St - Ellis Ave & 60th St), again indicated the purpose of member users.
+
+***
+Each start and end station and its users are grouped. These grouped routes were counted to see how often these routes were traveled, and the numbers filtered to select the top 7 routes. The station names were then merged for a tidy table and visualized in a ggplot2 bar chart.
+
+```{r Top Routes..., message=FALSE, warning=FALSE}
+
+top_places <- cyclistic %>% 
+  count(start_station_name, end_station_name, member_casual, name = "total", sort = TRUE) %>% 
+  filter(total > 4050) %>% 
+  unite(Destination, start_station_name, end_station_name, sep = " /\n")
+
+ggplot(top_places, aes(x = total, y = reorder(Destination, total), fill = member_casual)) + geom_col() +
+  labs(title = "Most Used Destinations in a year", x = "How many times used", y = "", fill = "Type of user")
+
+```
+
+## The only constant is time.
+
+We have found some location answers, it is time to ask when questions. The line graph shows us bike usage by month. Especially in winter, many casual users prefer to stay at home, but students, loyal and hard working members still use our bikes. Between the beginning of November and March is the dead season for casual members, so we can focus our marketing strategies on other months, such as July, August and September are the busiest times for bike sharing and precautions would remain at a high level during these periods. 
+
+***
+Created a new table to reformat the date rows using "Lubridate" to group member types and counted them. Used ggplot2 line chart to show changes over time.
+
+```{r Riding numbers by month}
+
+formated_month <- cyclistic %>% mutate(only_months = format(start_time, "%Y-%m")) %>% 
+  count(only_months, member_casual, name = "Monthly use")
+
+ggplot(formated_month, aes(x = only_months, y = `Monthly use`, group = member_casual, colour = member_casual)) + geom_line() +
+  scale_y_continuous(labels = label_number(scale_cut = cut_short_scale())) +
+  labs(title = "Bike Usage by month", colour = "Type of user") +
+  theme(axis.title.y = element_blank(), axis.title.x = element_blank())
+
+```
+
+## Riding days by purpose.
+
+Most users prefer weekdays, as members ride to work or school (more than 425,000 on wednesdays in a year). Casual users ride at weekends to enjoy the day in the parks (Rides start to increase on Thursdays).
+
+***
+I added a new column to determine the days with the "wday" function and grouped them to get separate values of member types, in the last counted them by days. Then I used ggplot2 line graph to create the bike usage in days time line.
+
+```{r Which days more used..., warning=FALSE, message=FALSE}
+
+when_most_used3 <- cyclistic %>% mutate(day_type = wday(start_time, label = TRUE, abbr = FALSE)) %>% 
+  count(member_casual ,day_type, name = "Total Rides")
+
+ggplot(when_most_used3, aes(x = day_type, y = `Total Rides`, group = member_casual, colour = member_casual)) + geom_line() + scale_y_continuous(labels = label_number(scale_cut = cut_short_scale())) + labs(title = "Bike Usage by day", colour = "Type of user") +
+  theme(axis.title.x = element_blank(), axis.title.y = element_blank())
+
+```
+
+## What about riding durations?
+
+I averaged each ride by weekday and weekend. The graph shows that both members and casual users enjoy weekend rides. Almost every casual user rides as a tour, but I would like to point out that regardless of user type, users like to ride more at weekends. This means that our customers prefer to cycle at weekends, so we can focus our promotions on the weekend trips.
+
+***
+I grouped the data into weekday and weekend, then took the average ride duration in minutes. I then used ggplot2 facet layer to create two different bar graphs.
+
+```{r Usage for weekdays/ends also durations..., message=FALSE, warning=FALSE}
+
+when_most_used2 <- cyclistic %>% mutate(day_type = ifelse(wday(start_time) %in% c(7, 1), "Weekend", "Weekday")) %>% 
+  group_by(day_type, member_casual) %>% summarize(avg_riding = mean(time_diff) / 60, .groups = "drop")
+
+ggplot(when_most_used2, aes(x = member_casual, y = avg_riding, fill = member_casual)) + geom_col() +
+  facet_grid(~day_type) + labs(title = "Average Riding Durations", x = "", y = "Minutes", fill = "Type of user") +
+  theme(axis.text.x = element_blank())
+
+```
+
+## Which hours are most used?
+
+In the last chart I wanted to see the peak hours of bike use. The created chart shows the cycling habits of members and casual users. As I mentioned before, most members ride during rush hours and casual users enjoy the daytime hours. Also, if we look between 16:00 and 18:00, there is a peak in the graph for both users. This could be a sign that there are casual users who do not have an annual membership but are using our service. So we can use digital marketing to reach those users.
+
+***
+I created a new table, formatted the date values to time (hour) values, grouped the table by user type and counted the hourly usage. Then I used ggplot2 line graph to create a time line for bike usage.
+
+```{r}
+
+formated_hours <- cyclistic %>% mutate(only_hours = format(start_time, "%H")) %>% 
+  count(only_hours, member_casual, name = "Hourly use")
+
+ggplot(formated_hours, aes(x = only_hours, y = `Hourly use`, group = member_casual, colour = member_casual)) + geom_line() +
+  scale_y_continuous(labels = label_number(scale_cut = cut_short_scale())) +
+  labs(title = "Bike Usage by hour", colour = "Type of user") +
+  theme(axis.title.y = element_blank(), axis.title.x = element_blank())
+
+```
+
+## Recommendations.
+
+The following are the top three recommendations based on the analysis. 
+
+A review of the charts and the resulting data indicates that casual users prefer to engage in cycling for leisure or commuting purposes. This allows us to narrow our scope and focus on specific locations and time periods. 
+
+1. The majority of casual users require bicycles for use in parks at the weekends, with commuting during the week being the second most common reason for their need for bicycles. We can promote our services to workers and students, offering them the opportunity to maintain their riding habits during the week for both purposes. We are aware that they enjoy long weekend bike rides. Digital media provides an effective platform for offering time-limited promotions, particularly at the beginning of June when people are likely to spend more time outdoors and the weather is favourable.
+
+2. We can encourage our casual users, who typically cycle on weekends, to ride during weekdays in good weather with notifications or limited promotions. This will increase the number of weekday users and facilitate the creation of a cycling habit in our users. It will also make it easier for us to transition our satisfied users to annual memberships. 
+
+3. The majority of our customers utilise our bicycles for their daily commute to work or school. In contrast to our casual users, regular use offers a number of advantages, including reduced transport costs, convenient access to a vehicle, regular exercise and fast travel without traffic jams. The marketing department can concentrate on these points and present them to our customers. Furthermore, we can conduct research into the health benefits of cycling for 15 to 25 minutes a day, combining this with our analyses for use in digital marketing.
+
